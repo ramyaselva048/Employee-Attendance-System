@@ -14,7 +14,8 @@ import {
   KeyRound,
   Settings,
   Printer,
-  RotateCcw
+  RotateCcw,
+  Database
 } from 'lucide-react';
 import { Employee, NotificationItem } from '../types';
 import { storage } from '../services/storage';
@@ -40,6 +41,32 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; latencyMs?: number; isSyncing?: boolean }>({
+    connected: true,
+  });
+
+  const checkDb = () => {
+    storage.checkDatabaseHealth().then((res) => {
+      setDbStatus((prev) => ({ ...prev, connected: res.connected, latencyMs: res.latencyMs }));
+    }).catch(() => {
+      setDbStatus((prev) => ({ ...prev, connected: false }));
+    });
+  };
+
+  useEffect(() => {
+    checkDb();
+    const interval = setInterval(checkDb, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualSync = async () => {
+    setDbStatus((prev) => ({ ...prev, isSyncing: true }));
+    await storage.syncToDatabase();
+    checkDb();
+    setTimeout(() => {
+      setDbStatus((prev) => ({ ...prev, isSyncing: false }));
+    }, 600);
+  };
 
   // Profile Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -137,8 +164,25 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Right Actions: Clock In/Out Terminal, Print, Notifications, User Menu */}
+      {/* Right Actions: TiDB Cloud, Clock In/Out Terminal, Print, Notifications, User Menu */}
       <div className="flex items-center space-x-2 sm:space-x-3">
+        {/* TiDB Cloud Database Status & Sync */}
+        <button
+          onClick={handleManualSync}
+          disabled={dbStatus.isSyncing}
+          className={`hidden md:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium border transition cursor-pointer shadow-2xs ${
+            dbStatus.connected
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+              : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+          }`}
+          title="TiDB Cloud MySQL (Cluster: Employee-Attendance-System) - Click to Sync with Cloud Database"
+        >
+          <Database className={`w-3.5 h-3.5 ${dbStatus.connected ? 'text-emerald-600' : 'text-amber-600'} ${dbStatus.isSyncing ? 'animate-spin' : ''}`} />
+          <span>TiDB: {dbStatus.isSyncing ? 'Syncing...' : dbStatus.connected ? 'Connected' : 'Offline'}</span>
+          <span className={`w-2 h-2 rounded-full ${dbStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+          {dbStatus.latencyMs ? <span className="text-[10px] text-emerald-700 font-sans font-semibold">({dbStatus.latencyMs}ms)</span> : null}
+        </button>
+
         {/* Global Print Statement / Audit Report Button */}
         <button
           onClick={() => generateAndPrintReport()}

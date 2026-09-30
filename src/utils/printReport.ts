@@ -54,8 +54,8 @@ export function generateAndPrintReport(options?: PrintReportOptions) {
   const dateFormatted = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`;
   const timeFormatted = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-  const operatorName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Administrator';
-  const operatorEmail = currentUser ? currentUser.email : 'admin@workpulse.com';
+  const operatorName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Ramya S';
+  const operatorEmail = currentUser ? currentUser.email : 'ramyaselva048@gmail.com';
   const docTitle = `Report ${reportNo} - WorkPulse Attendance Monitoring`;
 
   // Build rows HTML

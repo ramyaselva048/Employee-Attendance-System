@@ -208,7 +208,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                 required
                 placeholder={
                   authRole === 'admin'
-                    ? 'e.g. admin@workpulse.com or ADM-001'
+                    ? 'e.g. ramyaselva048@gmail.com or ADM-001'
                     : 'e.g. priya.s@workpulse.com or EMP-101'
                 }
                 value={identifier}
@@ -267,9 +267,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
         <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
           <div className="flex items-center space-x-1.5 text-emerald-400 font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Cloud Status: Operational</span>
+            <span>TiDB Cloud: Connected (Online)</span>
           </div>
-          <span className="font-mono text-[10px] text-slate-400">WorkPulse Enterprise v2.4</span>
+          <span className="font-mono text-[10px] text-slate-400">WorkPulse v2.4 • TiDB MySQL</span>
         </div>
       </div>
     </div>

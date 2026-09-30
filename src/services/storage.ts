@@ -37,9 +37,13 @@ const STORAGE_KEYS = {
 
 class StorageService {
   private listeners: Set<() => void> = new Set();
+  private syncTimeout: any = null;
 
   constructor() {
     this.initializeData();
+    if (typeof window !== 'undefined') {
+      this.initDatabaseSync();
+    }
   }
 
   public subscribe(listener: () => void): () => void {
@@ -57,6 +61,178 @@ class StorageService {
         console.error('Error notifying storage subscriber', e);
       }
     });
+
+    // Auto-sync changes to TiDB Cloud
+    if (typeof window !== 'undefined') {
+      if (this.syncTimeout) clearTimeout(this.syncTimeout);
+      this.syncTimeout = setTimeout(() => {
+        this.syncToDatabase().catch(() => {});
+      }, 1000);
+    }
+  }
+
+  public async syncToDatabase(): Promise<{ success: boolean; message?: string }> {
+    try {
+      const payload = {
+        departments: this.getDepartments(),
+        shifts: this.getShifts(),
+        employees: this.getEmployees(),
+        attendance: this.getAttendanceRecords(),
+        leaves: this.getLeaves(),
+        holidays: this.getHolidays(),
+        officeLocation: this.getOfficeLocation(),
+      };
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        return { success: true };
+      }
+      return { success: false, message: 'Sync failed' };
+    } catch (err: any) {
+      return { success: false, message: err.message };
+    }
+  }
+
+  public async checkDatabaseHealth(): Promise<{
+    connected: boolean;
+    cluster: string;
+    database: string;
+    host: string;
+    latencyMs?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          connected: data.status === 'connected',
+          cluster: data.cluster || 'Employee-Attendance-System',
+          database: data.database || 'attendance_db',
+          host: data.host || 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com',
+          latencyMs: data.latencyMs,
+        };
+      }
+      return {
+        connected: false,
+        cluster: 'Employee-Attendance-System',
+        database: 'attendance_db',
+        host: 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com',
+        error: 'Backend API error',
+      };
+    } catch (e: any) {
+      return {
+        connected: false,
+        cluster: 'Employee-Attendance-System',
+        database: 'attendance_db',
+        host: 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com',
+        error: e.message || 'Offline',
+      };
+    }
+  }
+
+  public async initDatabaseSync() {
+    try {
+      const res = await fetch('/api/data');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.employees) && data.employees.length > 0) {
+          if (data.departments?.length) localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(data.departments));
+          if (data.shifts?.length) {
+            const mappedShifts = data.shifts.map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              startTime: s.startTime || s.start_time || '09:00',
+              endTime: s.endTime || s.end_time || '17:30',
+              gracePeriodMinutes: Number(s.gracePeriodMinutes ?? s.grace_period_minutes ?? 15),
+              halfDayHours: Number(s.halfDayHours ?? s.half_day_hours ?? 4),
+              fullDayHours: Number(s.fullDayHours ?? s.full_day_hours ?? 8),
+              color: s.color || '#3B82F6',
+              description: s.description || '',
+            }));
+            localStorage.setItem(STORAGE_KEYS.SHIFTS, JSON.stringify(mappedShifts));
+          }
+          if (data.employees?.length) {
+            const mappedEmps = data.employees
+              .filter((e: any) => !((e.first_name === 'Alexander' || e.firstName === 'Alexander') && (e.last_name === 'Wright' || e.lastName === 'Wright')) && e.email !== 'admin@workpulse.com')
+              .map((e: any) => ({
+              ...e,
+              employeeId: e.employee_id || e.employeeId,
+              firstName: e.first_name || e.firstName,
+              lastName: e.last_name || e.lastName,
+              departmentId: e.department_id || e.departmentId,
+              shiftId: e.shift_id || e.shiftId,
+              dateOfJoining: e.date_of_joining || e.dateOfJoining,
+              avatarUrl: e.avatar_url || e.avatarUrl,
+              hourlyRate: Number(e.hourly_rate || e.hourlyRate || 30),
+              qrCodeToken: e.qr_code_token || e.qrCodeToken,
+              biometricId: e.biometric_id || e.biometricId,
+              annualLeaveBalance: e.annual_leave_balance ?? e.annualLeaveBalance ?? 14,
+              sickLeaveBalance: e.sick_leave_balance ?? e.sickLeaveBalance ?? 8,
+              casualLeaveBalance: e.casual_leave_balance ?? e.casualLeaveBalance ?? 6,
+              password: e.password || 'Ramya@123',
+            }));
+            localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(mappedEmps));
+          }
+          if (data.attendance?.length) {
+            const mappedAtt = data.attendance.map((a: any) => ({
+              ...a,
+              employeeId: a.employee_id || a.employeeId,
+              checkIn: a.checkIn || a.check_in_time || a.checkInTime || '-',
+              checkOut: a.checkOut || a.check_out_time || a.checkOutTime || null,
+              workHours: Number(a.workHours ?? a.total_hours ?? a.totalHours ?? 0),
+              overtimeHours: Number(a.overtimeHours ?? a.overtime_hours ?? 0),
+              isVerified: Boolean(a.is_verified ?? a.isVerified),
+              location: (a.location_latitude && a.location_longitude) ? {
+                latitude: Number(a.location_latitude),
+                longitude: Number(a.location_longitude),
+                address: a.location_address || '',
+              } : a.location,
+              ipAddress: a.ip_address || a.ipAddress,
+              deviceInfo: a.device_info || a.deviceInfo,
+            }));
+            localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(mappedAtt));
+          }
+          if (data.leaves?.length) {
+            const mappedLeaves = data.leaves.map((l: any) => ({
+              ...l,
+              employeeId: l.employee_id || l.employeeId,
+              leaveType: l.leave_type || l.leaveType,
+              startDate: l.start_date || l.startDate,
+              endDate: l.end_date || l.endDate,
+              appliedOn: l.applied_on || l.appliedOn,
+              reviewedBy: l.reviewed_by || l.reviewedBy,
+              reviewedOn: l.reviewed_on || l.reviewedOn,
+              rejectionReason: l.rejection_reason || l.rejectionReason,
+            }));
+            localStorage.setItem(STORAGE_KEYS.LEAVES, JSON.stringify(mappedLeaves));
+          }
+          if (data.officeLocation) {
+            localStorage.setItem(STORAGE_KEYS.OFFICE_LOCATION, JSON.stringify(data.officeLocation));
+          }
+          this.notifyListenersOnly();
+          return;
+        }
+      }
+    } catch {
+      // API not yet ready
+    }
+
+    // Push local state to TiDB if TiDB was empty
+    this.syncToDatabase().catch(() => {});
+  }
+
+  private notifyListenersOnly() {
+    this.listeners.forEach((cb) => {
+      try {
+        cb();
+      } catch (e) {
+        console.error('Error notifying subscriber', e);
+      }
+    });
   }
 
   private initializeData() {
@@ -69,23 +245,29 @@ class StorageService {
     if (!localStorage.getItem(STORAGE_KEYS.EMPLOYEES)) {
       localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(INITIAL_EMPLOYEES));
     } else {
-      // Ensure admin password is Ramya@123
+      // Ensure Ramya S is the sole Admin and Alexander Wright is completely removed
       try {
-        const currentEmps: Employee[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EMPLOYEES) || '[]');
-        let updated = false;
-        currentEmps.forEach((emp) => {
-          if (emp.role === 'admin' || emp.id === 'emp_admin') {
-            if (emp.password !== 'Ramya@123') {
-              emp.password = 'Ramya@123';
-              updated = true;
-            }
-          }
-        });
-        if (updated) {
-          localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(currentEmps));
+        let currentEmps: Employee[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EMPLOYEES) || '[]');
+        // Filter out any Alexander Wright
+        currentEmps = currentEmps.filter((e) => !(e.firstName === 'Alexander' && e.lastName === 'Wright') && e.email !== 'admin@workpulse.com');
+        
+        let adminFound = currentEmps.find((e) => e.role === 'admin' || e.id === 'emp_admin' || e.employeeId === 'ADM-001');
+        if (adminFound) {
+          adminFound.id = 'emp_admin';
+          adminFound.employeeId = 'ADM-001';
+          adminFound.firstName = 'Ramya';
+          adminFound.lastName = 'S';
+          adminFound.email = 'ramyaselva048@gmail.com';
+          adminFound.role = 'admin';
+          adminFound.designation = 'Principal HR Director & Administrator';
+          adminFound.password = 'Ramya@123';
+          adminFound.avatarUrl = 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=250&q=80';
+        } else {
+          currentEmps.unshift(INITIAL_EMPLOYEES[0]);
         }
+        localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(currentEmps));
       } catch (e) {
-        console.error('Error syncing admin password in storage', e);
+        console.error('Error syncing admin in storage', e);
       }
     }
     if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
@@ -105,7 +287,7 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.OFFICE_LOCATION, JSON.stringify(DEFAULT_OFFICE_LOCATION));
     }
     if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(INITIAL_EMPLOYEES[0])); // Default Alexander Wright (Admin)
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(INITIAL_EMPLOYEES[0])); // Default Ramya S (Admin)
     }
   }
 
@@ -114,7 +296,13 @@ class StorageService {
     const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
     if (!raw) return null;
     try {
-      return JSON.parse(raw);
+      const u = JSON.parse(raw);
+      if (u.firstName === 'Alexander' || u.lastName === 'Wright' || u.email === 'admin@workpulse.com') {
+        const admin = this.getEmployees().find((e) => e.role === 'admin') || INITIAL_EMPLOYEES[0];
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(admin));
+        return admin;
+      }
+      return u;
     } catch {
       return null;
     }
@@ -137,9 +325,9 @@ class StorageService {
       (e) => e.email.toLowerCase() === cleanId || e.employeeId.toLowerCase() === cleanId
     );
 
-    // If identifier is 'adm-101', 'adm-001', 'admin', 'admin@workpulse.com', or matches 'ramya', resolve to Admin
-    if (!found && (cleanId === 'adm-101' || cleanId === 'adm-001' || cleanId === 'admin' || cleanId.startsWith('adm-') || cleanId.includes('ramya'))) {
-      found = employees.find((e) => e.role === 'admin' || e.id === 'emp_admin');
+    // If identifier is 'adm-001', 'adm-101', 'admin', 'ramyaselva048@gmail.com', 'ramyaselva048@gmial.com', or matches 'ramya', resolve to Ramya S
+    if (!found && (cleanId === 'adm-001' || cleanId === 'adm-101' || cleanId === 'admin' || cleanId.startsWith('adm-') || cleanId.includes('ramya') || cleanId.includes('selva'))) {
+      found = employees.find((e) => e.role === 'admin' || e.id === 'emp_admin' || e.employeeId === 'ADM-001');
     }
 
     if (!found) {
@@ -399,7 +587,7 @@ class StorageService {
         code: dept.code || 'DEPT',
         description: dept.description || '',
         headName: dept.headName || 'Unassigned',
-        headEmail: dept.headEmail || 'admin@workpulse.com',
+        headEmail: dept.headEmail || 'ramyaselva048@gmail.com',
         createdAt: new Date().toISOString().split('T')[0],
       };
       list.push(saved);
