@@ -1,0 +1,11 @@
+{
+  "name": "WorkPulse - Enterprise Attendance Management System",
+  "description": "Enterprise Employee Attendance & Workforce Management System featuring Admin & Employee portals, QR-code, GPS geolocation, shifts, overtime tracking, leave management, and automated analytics reports.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
