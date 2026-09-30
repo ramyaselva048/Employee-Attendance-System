@@ -136,10 +136,20 @@ async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       );
     `);
+    await conn.query(`DELETE FROM employees WHERE first_name = 'Alexander' OR last_name = 'Wright' OR email = 'admin@workpulse.com';`);
     await conn.query(`
-      UPDATE employees 
-      SET password = 'Ramya@123' 
-      WHERE role = 'admin' OR email = 'admin@workpulse.com' OR employee_id IN ('ADM-001', 'ADM-101');
+      INSERT INTO employees (
+        id, employee_id, first_name, last_name, email, role, department_id, shift_id, designation, phone, date_of_joining, status, avatar_url, hourly_rate, qr_code_token, biometric_id, annual_leave_balance, sick_leave_balance, casual_leave_balance, password
+      ) VALUES (
+        'emp_admin', 'ADM-001', 'Ramya', 'S', 'ramyaselva048@gmail.com', 'admin', 'dept_hr', 'shift_general', 'Principal HR Director & Administrator', '+91 98765 43210', '2022-01-10', 'active', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=250&q=80', 55.0, 'WP-ADM-001-TOKEN-9942', 'BIO-ADM-001', 24, 12, 10, 'Ramya@123'
+      ) ON DUPLICATE KEY UPDATE 
+        employee_id = 'ADM-001',
+        first_name = 'Ramya',
+        last_name = 'S',
+        email = 'ramyaselva048@gmail.com',
+        role = 'admin',
+        designation = 'Principal HR Director & Administrator',
+        password = 'Ramya@123';
     `);
     conn.release();
     console.log("[TiDB] Database tables initialized and verified.");
@@ -322,15 +332,19 @@ async function startServer() {
       }
       if (Array.isArray(employees) && employees.length > 0) {
         for (const e of employees) {
-          const empId = e.employeeId || e.employee_id || e.id;
-          const fName = e.firstName || e.first_name || "Staff";
-          const lName = e.lastName || e.last_name || "";
-          const email = e.email;
-          const role = e.role || "employee";
+          if (e.firstName === "Alexander" && e.lastName === "Wright" || e.first_name === "Alexander" && e.last_name === "Wright" || e.email === "admin@workpulse.com") {
+            continue;
+          }
+          const isAdmin = e.role === "admin" || e.id === "emp_admin" || e.employeeId === "ADM-001" || e.employee_id === "ADM-001";
+          const empId = isAdmin ? "ADM-001" : e.employeeId || e.employee_id || e.id;
+          const fName = isAdmin ? "Ramya" : e.firstName || e.first_name || "Staff";
+          const lName = isAdmin ? "S" : e.lastName || e.last_name || "";
+          const email = isAdmin ? "ramyaselva048@gmail.com" : e.email;
+          const role = isAdmin ? "admin" : e.role || "employee";
           const dept = e.departmentId || e.department_id || "dept_hr";
           const shift = e.shiftId || e.shift_id || "shift_general";
-          const desig = e.designation || "Staff";
-          const pwd = role === "admin" || empId === "ADM-001" || empId === "ADM-101" || email === "admin@workpulse.com" ? "Ramya@123" : e.password || "password123";
+          const desig = isAdmin ? "Principal HR Director & Administrator" : e.designation || "Staff";
+          const pwd = isAdmin ? "Ramya@123" : e.password || "password123";
           await conn.query(
             `INSERT INTO employees (id, employee_id, first_name, last_name, email, role, department_id, shift_id, designation, phone, date_of_joining, status, avatar_url, hourly_rate, qr_code_token, biometric_id, annual_leave_balance, sick_leave_balance, casual_leave_balance, password)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
